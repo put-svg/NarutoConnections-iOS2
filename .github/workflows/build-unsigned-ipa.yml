@@ -1,15 +1,19 @@
-
+```yaml
 name: Build unsigned iOS IPA
+
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: macos-15
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
       - name: Select Xcode
         run: xcode-select -p && xcodebuild -version
+
       - name: Build app for iPhone (unsigned)
         run: |
           xcodebuild \
@@ -20,6 +24,7 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             build
+
       - name: Package unsigned IPA
         run: |
           APP="build/DerivedData/Build/Products/Release-iphoneos/NarutoConnections.app"
@@ -28,9 +33,11 @@ jobs:
           cp -R "$APP" build/package/Payload/
           cd build/package
           /usr/bin/zip -qry ../NarutoConnections-unsigned.ipa Payload
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: NarutoConnections-unsigned-IPA
           path: build/NarutoConnections-unsigned.ipa
           if-no-files-found: error
+```
