@@ -1,0 +1,49 @@
+workflows:
+  ios-unsigned:
+    name: Naruto Connections iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+
+    scripts:
+      - name: Extract Xcode project
+        script: |
+          mkdir -p build/unpacked
+          ditto -x -k NarutoConnections_iOS_v7_GitHubBuild.zip build/unpacked
+
+      - name: Build unsigned iOS app
+        script: |
+          PROJECT=$(find build/unpacked -name "NarutoConnections.xcodeproj" -print -quit)
+
+          if [ -z "$PROJECT" ]; then
+            echo "ไม่พบ NarutoConnections.xcodeproj ใน ZIP"
+            exit 1
+          fi
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme NarutoConnections \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package unsigned IPA
+        script: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/NarutoConnections.app"
+
+          if [ ! -d "$APP" ]; then
+            echo "ไม่พบไฟล์แอปที่ Build"
+            exit 1
+          fi
+
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          cd build
+          zip -qry NarutoConnections-unsigned.ipa Payload
+
+    artifacts:
+      - build/NarutoConnections-unsigned.ipa
