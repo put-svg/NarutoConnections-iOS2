@@ -8,48 +8,70 @@ jobs:
   source-preflight:
     name: Source preflight (Ubuntu)
     runs-on: ubuntu-latest
+    outputs:
+      has_project: ${{ steps.locate.outputs.has_project }}
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Locate project.yml
+      - name: Diagnose project files
+        id: locate
         run: |
-          echo "Repository root:"
+          echo "===== REPOSITORY ROOT ====="
           pwd
-          echo "Searching for project.yml..."
-          find . -maxdepth 6 -name project.yml -print
-          test -n "$(find . -maxdepth 6 -name project.yml -print -quit)"
+
+          echo "===== ROOT FILES ====="
+          ls -la
+
+          echo "===== ALL PROJECT FILES ====="
+          find . -type f \( \
+            -name 'project.yml' -o \
+            -name '*.xcodeproj' -o \
+            -name '*.xcworkspace' -o \
+            -name 'Package.swift' \
+          \) -print
+
+          SPEC="$(find "$GITHUB_WORKSPACE" -type f -name project.yml -print -quit)"
+
+          if [ -n "$SPEC" ]; then
+            echo "PROJECT_YML_FOUND=$SPEC"
+            echo "has_project=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "PROJECT_YML_NOT_FOUND"
+            echo "has_project=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: Build unsigned IPA
     needs: source-preflight
+    if: needs.source-preflight.outputs.has_project == 'true'
     runs-on: macos-15
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         run: |
-          SPEC="$(find . -maxdepth 6 -name project.yml -print -quit)"
+          SPEC="$(find "$GITHUB_WORKSPACE" -type f -name project.yml -print -quit)"
           test -n "$SPEC"
           SPEC_DIR="$(dirname "$SPEC")"
-          cd "$SPEC_DIR"
-          xcodegen generate --spec project.yml
-          PROJECT="$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)"
+          xcodegen generate --spec "$SPEC"
+
+          PROJECT="$(find "$SPEC_DIR" -maxdepth 3 -name '*.xcodeproj' -print -quit)"
           test -n "$PROJECT"
-          echo "PROJECT_PATH=$SPEC_DIR/$PROJECT" >> "$GITHUB_ENV"
+          echo "PROJECT_PATH=$PROJECT" >> "$GITHUB_ENV"
 
       - name: Check Xcode project
         run: |
           xcodebuild -version
           xcodebuild -list -project "$PROJECT_PATH"
 
-      - name: Build app for iPhone (unsigned)
+      - name: Build app for iPhone
         run: |
           xcodebuild \
             -project "$PROJECT_PATH" \
