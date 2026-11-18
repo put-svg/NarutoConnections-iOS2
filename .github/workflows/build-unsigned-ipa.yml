@@ -3,15 +3,6 @@ name: Build unsigned iOS IPA
 on:
   push:
   workflow_dispatch:
-    inputs:
-      runner_pool:
-        description: Select macOS runner
-        required: true
-        default: macos-15-intel
-        type: choice
-        options:
-          - macos-15-intel
-          - macos-15
 
 jobs:
   source-preflight:
@@ -22,44 +13,57 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check project files
+      - name: Locate project.yml
         run: |
-          echo "Checking Xcode project..."
-          test -d NarutoConnections.xcodeproj
-          test -f NarutoConnections.xcodeproj/project.pbxproj
-          echo "Xcode project files found."
-
-      - name: List project files
-        run: |
-          find NarutoConnections.xcodeproj -maxdepth 3 -type f | sort
+          echo "Repository root:"
+          pwd
+          echo "Searching for project.yml..."
+          find . -maxdepth 6 -name project.yml -print
+          test -n "$(find . -maxdepth 6 -name project.yml -print -quit)"
 
   build:
     name: Build unsigned IPA
     needs: source-preflight
-    runs-on: ${{ github.event.inputs.runner_pool || 'macos-15-intel' }}
+    runs-on: macos-15
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check Xcode
-        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          SPEC="$(find . -maxdepth 6 -name project.yml -print -quit)"
+          test -n "$SPEC"
+          SPEC_DIR="$(dirname "$SPEC")"
+          cd "$SPEC_DIR"
+          xcodegen generate --spec project.yml
+          PROJECT="$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)"
+          test -n "$PROJECT"
+          echo "PROJECT_PATH=$SPEC_DIR/$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Check Xcode project
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project "$PROJECT_PATH"
 
       - name: Build app for iPhone (unsigned)
         run: |
           xcodebuild \
-            -project NarutoConnections.xcodeproj \
+            -project "$PROJECT_PATH" \
             -scheme NarutoConnections \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath build/DerivedData \
+            -derivedDataPath "$GITHUB_WORKSPACE/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             build
 
       - name: Package IPA
         run: |
-          APP="build/DerivedData/Build/Products/Release-iphoneos/NarutoConnections.app"
-          test -d "$APP"
+          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP"
           mkdir -p build/package/Payload
           cp -R "$APP" build/package/Payload/
           cd build/package
