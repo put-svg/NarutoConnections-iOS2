@@ -7,38 +7,38 @@ on:
 jobs:
   source-preflight:
     name: Source preflight (Ubuntu)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
-      has_project: ${{ steps.locate.outputs.has_project }}
+      has_project: ${{ steps.check.outputs.has_project }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
 
-      - name: Diagnose project files
-        id: locate
+      - name: Inspect ZIP project
+        id: check
         run: |
-          echo "===== REPOSITORY ROOT ====="
-          pwd
+          ZIP="NarutoConnections_iOS_v7_GitHubBuild.zip"
 
-          echo "===== ROOT FILES ====="
-          ls -la
+          if [ ! -f "$ZIP" ]; then
+            echo "ไม่พบไฟล์ ZIP"
+            echo "has_project=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          echo "===== ALL PROJECT FILES ====="
-          find . -type f \( \
-            -name 'project.yml' -o \
-            -name '*.xcodeproj' -o \
-            -name '*.xcworkspace' -o \
-            -name 'Package.swift' \
-          \) -print
+          mkdir -p /tmp/naruto-check
+          unzip -q "$ZIP" -d /tmp/naruto-check
 
-          SPEC="$(find "$GITHUB_WORKSPACE" -type f -name project.yml -print -quit)"
+          PROJECT=$(find /tmp/naruto-check \
+            -type d -name "NarutoConnections.xcodeproj" \
+            -print -quit)
 
-          if [ -n "$SPEC" ]; then
-            echo "PROJECT_YML_FOUND=$SPEC"
+          if [ -n "$PROJECT" ]; then
+            echo "พบ Xcode project: $PROJECT"
             echo "has_project=true" >> "$GITHUB_OUTPUT"
           else
-            echo "PROJECT_YML_NOT_FOUND"
+            echo "ไม่พบ NarutoConnections.xcodeproj ภายใน ZIP"
+            find /tmp/naruto-check -maxdepth 5 -type f | head -100
             echo "has_project=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -52,17 +52,18 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v5
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
+      - name: Extract project ZIP
         run: |
-          SPEC="$(find "$GITHUB_WORKSPACE" -type f -name project.yml -print -quit)"
-          test -n "$SPEC"
-          SPEC_DIR="$(dirname "$SPEC")"
-          xcodegen generate --spec "$SPEC"
+          mkdir -p build/unpacked
+          unzip -q NarutoConnections_iOS_v7_GitHubBuild.zip \
+            -d build/unpacked
 
-          PROJECT="$(find "$SPEC_DIR" -maxdepth 3 -name '*.xcodeproj' -print -quit)"
+      - name: Locate Xcode project
+        run: |
+          PROJECT=$(find "$GITHUB_WORKSPACE/build/unpacked" \
+            -type d -name "NarutoConnections.xcodeproj" \
+            -print -quit)
+
           test -n "$PROJECT"
           echo "PROJECT_PATH=$PROJECT" >> "$GITHUB_ENV"
 
@@ -84,10 +85,16 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          DERIVED="$GITHUB_WORKSPACE/build/DerivedData"
+
+          APP=$(find "$DERIVED/Build/Products/Release-iphoneos" \
+            -maxdepth 1 -type d -name "*.app" -print -quit)
+
           test -n "$APP"
+
           mkdir -p build/package/Payload
           cp -R "$APP" build/package/Payload/
+
           cd build/package
           zip -qry ../NarutoConnections-unsigned.ipa Payload
 
